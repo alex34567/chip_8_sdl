@@ -1,13 +1,12 @@
 extern crate sdl2;
-extern crate rand;
 use std::fs::File;
 use sdl2::rect::*;
 use sdl2::keyboard::*;
 use sdl2::event::*;
 use sdl2::audio::*;
 use sdl2::EventPump;
-mod computer;
-use computer::*;
+extern crate chip_8_core;
+use chip_8_core::*;
 
 fn hex_to_scan_code(hex: u8) -> Result<Scancode, &'static str> {
     match hex {
@@ -53,13 +52,15 @@ fn scan_code_to_hex(scancode: Scancode) -> Option<u8> {
     }
 }
 
-impl KeyWrapper for EventPump {
+struct SdlKeyWrapper(EventPump);
+
+impl KeyWrapper for SdlKeyWrapper {
     fn is_pushed(&self, key: u8) -> Result<bool, &'static str> {
         let scancode = try!(hex_to_scan_code(key));
-        Ok(self.keyboard_state().is_scancode_pressed(scancode))
+        Ok(self.0.keyboard_state().is_scancode_pressed(scancode))
     }
     fn get_key(&self) -> Option<u8> {
-        for key in self.keyboard_state().pressed_scancodes() {
+        for key in self.0.keyboard_state().pressed_scancodes() {
             if let Some(hex) = scan_code_to_hex(key) {
                 return Some(hex);
             }
@@ -95,13 +96,15 @@ impl AudioCallback for SimpleAudioDevice {
     }
 }
 
-impl<CB: AudioCallback> AudioWrapper for AudioDevice<CB> {
+struct SdlAudioWrapper<CB: AudioCallback>(AudioDevice<CB>);
+
+impl<CB: AudioCallback> AudioWrapper for SdlAudioWrapper<CB> {
     fn play(&mut self) {
-        self.resume();
+        self.0.resume();
     }
     
     fn stop(&mut self) {
-        self.pause();
+        self.0.pause();
     }
 }
 
@@ -115,6 +118,7 @@ fn main() {
         .build()
         .unwrap();
     let sdl_event_pump = sdl.event_pump().unwrap();
+    let sdl_key_wrapper = SdlKeyWrapper(sdl_event_pump);
     let sdl_audio = sdl.audio().unwrap();
     let spec = AudioSpecDesired {
         freq: None,
@@ -132,7 +136,8 @@ fn main() {
             volume: 1.00,
         }
     }).unwrap();
-    let mut chip8 = Chip8::new(sdl_event_pump, sdl_audio_device);
+    let sdl_audio_wrapper = SdlAudioWrapper(sdl_audio_device);
+    let mut chip8 = Chip8::new(sdl_key_wrapper, sdl_audio_wrapper);
     if let Some(file) = args.next() {
         match File::open(file) {
             Ok(mut input_file) => {
@@ -153,7 +158,7 @@ fn main() {
             break;
         }
         sdl_renderer.clear();
-        for event in chip8.key_wrapper.poll_iter() {
+        for event in chip8.key_wrapper.0.poll_iter() {
             if let Event::Quit { .. } = event {
                 return;
             }
